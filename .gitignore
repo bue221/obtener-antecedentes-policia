@@ -1,0 +1,31 @@
+# Entornos virtuales
+venv/
+.env
+.env.*
+
+# Archivos de configuración y credenciales
+*.env
+
+# Archivos de Python compilados
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Archivos de logs y temporales
+*.log
+*.tmp
+*.swp
+
+# Resultados y errores generados por el script
+antecedentes/
+errors/
+
+# Archivos de usuario/editor
+.DS_Store
+.idea/
+.vscode/
+*.sublime-workspace
+*.sublime-project
+
+# Otros
+*.bak 
