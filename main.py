@@ -8,7 +8,8 @@ import time
 import os
 import base64
 from dotenv import load_dotenv
-from selenium.common.exceptions import NoSuchWindowException
+from selenium.common.exceptions import NoSuchWindowException, TimeoutException, NoSuchElementException
+import re
 
 # --- Configuración Básica ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -41,6 +42,99 @@ def is_driver_alive(driver):
         return driver is not None and driver.session_id and driver.title is not None
     except Exception:
         return False
+
+def extract_recaptcha_sitekey(driver, wait):
+    """
+    Extrae el sitekey del reCAPTCHA usando múltiples estrategias.
+    
+    Args:
+        driver: Instancia del WebDriver
+        wait: Instancia de WebDriverWait
+        
+    Returns:
+        str: El sitekey encontrado
+        
+    Raises:
+        Exception: Si no se puede encontrar el sitekey
+    """
+    strategies = [
+        # Estrategia 1: Buscar elementos con data-sitekey
+        {
+            'selector': '[data-sitekey]',
+            'attribute': 'data-sitekey',
+            'description': 'Elemento con atributo data-sitekey'
+        },
+        # Estrategia 2: Buscar iframe de reCAPTCHA
+        {
+            'selector': 'iframe[src*="recaptcha"]',
+            'attribute': 'src',
+            'description': 'iframe de reCAPTCHA',
+            'extract_from_src': True
+        },
+        # Estrategia 3: Buscar div con clase g-recaptcha
+        {
+            'selector': '.g-recaptcha',
+            'attribute': 'data-sitekey',
+            'description': 'Div con clase g-recaptcha'
+        },
+        # Estrategia 4: Buscar script de reCAPTCHA
+        {
+            'selector': 'script[src*="recaptcha"]',
+            'attribute': 'src',
+            'description': 'Script de reCAPTCHA',
+            'extract_from_src': True
+        }
+    ]
+    
+    for i, strategy in enumerate(strategies, 1):
+        try:
+            logging.info(f"Estrategia {i}: Buscando {strategy['description']}")
+            
+            # Esperar a que aparezca el elemento
+            element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, strategy['selector'])))
+            
+            if strategy.get('extract_from_src'):
+                # Extraer sitekey de la URL del src
+                src = element.get_attribute(strategy['attribute'])
+                if src and 'k=' in src:
+                    sitekey = src.split('k=')[1].split('&')[0]
+                    logging.info(f"Sitekey extraído de URL: {sitekey}")
+                    return sitekey
+            else:
+                # Extraer directamente del atributo
+                sitekey = element.get_attribute(strategy['attribute'])
+                if sitekey:
+                    logging.info(f"Sitekey encontrado: {sitekey}")
+                    return sitekey
+                    
+        except (TimeoutException, NoSuchElementException) as e:
+            logging.warning(f"Estrategia {i} falló: {e}")
+            continue
+    
+    # Estrategia final: Buscar en el código JavaScript de la página
+    try:
+        logging.info("Estrategia final: Buscando en JavaScript de la página")
+        page_source = driver.page_source
+        
+        # Buscar patrones comunes de sitekey en el código
+        patterns = [
+            r'data-sitekey=["\']([^"\']+)["\']',
+            r'sitekey["\']?\s*:\s*["\']([^"\']+)["\']',
+            r'k=([a-zA-Z0-9_-]+)',
+            r'recaptcha.*?["\']([a-zA-Z0-9_-]{40})["\']'
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, page_source)
+            if matches:
+                sitekey = matches[0]
+                logging.info(f"Sitekey encontrado en JavaScript: {sitekey}")
+                return sitekey
+                
+    except Exception as e:
+        logging.error(f"Error en estrategia final: {e}")
+    
+    raise Exception("No se pudo encontrar el sitekey del reCAPTCHA en ninguna estrategia")
 
 def consultar_antecedentes(cedula):
     """
@@ -139,14 +233,7 @@ def consultar_antecedentes(cedula):
                 if 'TU_API_KEY' in api_key: raise Exception("API Key no configurada")
 
                 # Esperar explícitamente el elemento que contiene el sitekey
-                try:
-                    recaptcha_elem = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-sitekey]')))
-                    sitekey = recaptcha_elem.get_attribute('data-sitekey')
-                    if not sitekey:
-                        raise Exception("No se encontró el atributo data-sitekey en el elemento esperado.")
-                except Exception as e:
-                    logging.error(f"No se pudo encontrar el sitekey para reCAPTCHA: {e}")
-                    raise Exception("No se pudo encontrar el sitekey para reCAPTCHA. Revisa el selector o la estructura de la página.")
+                sitekey = extract_recaptcha_sitekey(driver, wait)
 
                 solver = TwoCaptcha(api_key)
                 result = solver.recaptcha(sitekey=sitekey, url=driver.current_url)
