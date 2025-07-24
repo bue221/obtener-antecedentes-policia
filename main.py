@@ -306,5 +306,11 @@ def consultar_antecedentes(cedula):
 
 # --- Punto de Entrada del Script ---
 if __name__ == "__main__":
-    numero_de_cedula = "1001298785"
-    consultar_antecedentes(numero_de_cedula)
+    cedulas_input = input("Ingrese una o varias cédulas separadas por coma: ").strip()
+    cedulas = [c.strip() for c in cedulas_input.split(',') if c.strip().isdigit()]
+    if not cedulas:
+        print("No se ingresaron cédulas válidas. El programa terminará.")
+    else:
+        for cedula in cedulas:
+            print(f"\nConsultando antecedentes para la cédula: {cedula}")
+            consultar_antecedentes(cedula)
